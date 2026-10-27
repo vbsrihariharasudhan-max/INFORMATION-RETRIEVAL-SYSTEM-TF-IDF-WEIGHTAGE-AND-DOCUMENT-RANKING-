@@ -1,0 +1,118 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.datasets import fetch_20newsgroups
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import LinearSVC
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, ConfusionMatrixDisplay
+import time
+
+# =====================================================================
+# 1. DATASET LOADING & PREPROCESSING (TF-IDF)
+# =====================================================================
+print("Loading dataset...")
+categories = ['alt.atheism', 'soc.religion.christian', 'comp.graphics', 'sci.space']
+newsgroups_data = fetch_20newsgroups(subset='all', categories=categories, remove=('headers', 'footers', 'quotes'), random_state=42)
+
+X_raw, y = newsgroups_data.data, newsgroups_data.target
+target_names = newsgroups_data.target_names
+
+# Feature extraction using TF-IDF representation (max 5000 features)
+vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
+X_tfidf = vectorizer.fit_transform(X_raw)
+
+# Split consistently into Train (80%) and Test (20%) sets
+X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
+print(f"Dataset loaded. Train size: {X_train.shape[0]}, Test size: {X_test.shape[0]}\n")
+
+# =====================================================================
+# 2. MODEL TRAINING & EVALUATION LOOP
+# =====================================================================
+classifiers = {
+    "Decision Tree": DecisionTreeClassifier(random_state=42),
+    "KNN (k=5)": KNeighborsClassifier(n_neighbors=5),
+    "SVM (Linear)": LinearSVC(random_state=42),
+    "Naïve Bayes": MultinomialNB()
+}
+
+results = []
+y_preds = {}
+
+print("Training models and collecting metrics...")
+for name, clf in classifiers.items():
+    start_time = time.time()
+    clf.fit(X_train, y_train)
+    train_time = time.time() - start_time
+    
+    y_pred = clf.predict(X_test)
+    y_preds[name] = y_pred
+    
+    # Calculate metrics
+    acc = accuracy_score(y_test, y_pred)
+    prec, rec, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
+    
+    results.append({
+        "Algorithm": name,
+        "Accuracy": acc,
+        "Precision": prec,
+        "Recall": rec,
+        "F1-Score": f1,
+        "Train Time (s)": train_time
+    })
+
+# Display overall results
+df_results = pd.DataFrame(results)
+display(df_results)
+
+# =====================================================================
+# 3. EMPIRICAL VISUALIZATION (COMPARISON CHART & CONFUSION MATRIX)
+# =====================================================================
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+# Barplot comparison
+df_melted = df_results.melt(id_vars="Algorithm", value_vars=["Accuracy", "Precision", "Recall", "F1-Score"], var_name="Metric", value_name="Score")
+sns.barplot(data=df_melted, x="Algorithm", y="Score", hue="Metric", ax=ax1)
+ax1.set_title("Classifier Performance Comparison")
+ax1.set_ylim(0.4, 1.05)
+ax1.grid(True, linestyle='--', alpha=0.5)
+
+# Select the best model (SVM)
+best_model_name = df_results.loc[df_results['F1-Score'].idxmax()]['Algorithm']
+print(f"\nBest Model Identified: {best_model_name}")
+
+# Plot Confusion Matrix for Best Model
+cm = confusion_matrix(y_test, y_preds[best_model_name])
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=target_names)
+disp.plot(ax=ax2, cmap='Blues', xticks_rotation=45)
+ax2.set_title(f"Confusion Matrix: {best_model_name}")
+plt.tight_layout()
+plt.show()
+
+# =====================================================================
+# 4. WHAT-IF HYPERPARAMETER ANALYSIS (KNN VARIATION)
+# =====================================================================
+print("\n--- Running What-If Analysis: Modifying k in KNN ---")
+k_values = [1, 3, 5, 11, 21]
+knn_scores = []
+
+for k in k_values:
+    knn = KNeighborsClassifier(n_neighbors=k)
+    knn.fit(X_train, y_train)
+    preds = knn.predict(X_test)
+    acc = accuracy_score(y_test, preds)
+    knn_scores.append(acc)
+    print(f"KNN with k={k:02d} -> Test Accuracy: {acc*100:.2f}%")
+
+plt.figure(figsize=(8, 4))
+plt.plot(k_values, knn_scores, marker='o', color='green', linestyle='--')
+plt.title("What-If Analysis: Effect of $k$ on KNN Accuracy")
+plt.xlabel("Number of Neighbors ($k$)")
+plt.ylabel("Accuracy Score")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
